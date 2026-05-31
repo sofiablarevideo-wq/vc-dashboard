@@ -112,6 +112,7 @@ h1{font-family:'Unbounded',sans-serif;font-size:19px;font-weight:700;letter-spac
 .dept-tab[data-dept="smm"]{--dept-color:var(--dept-smm);}
 .dept-tab[data-dept="merch"]{--dept-color:var(--dept-merch);}
 .dept-tab[data-dept="3d"]{--dept-color:var(--dept-3d);}
+.dept-tab[data-dept="manager"]{--dept-color:var(--dept-manager);}
 .dept-tab[data-dept="overview"]{--dept-color:var(--muted);}
 .dept-badge{display:inline-block;padding:1px 7px;border-radius:10px;font-size:10px;font-weight:600;margin-left:6px;vertical-align:middle;}
 
@@ -390,7 +391,6 @@ h1{font-family:'Unbounded',sans-serif;font-size:19px;font-weight:700;letter-spac
     <button class="btn btn-blue" onclick="openBitrixModal()">⬇ Битрикс24</button>
     <button class="btn btn-blue" onclick="document.getElementById('xls-input').click()" style="background:var(--green-bg);color:var(--green);border-color:var(--green-border);">📥 XLS</button>
     <input type="file" id="xls-input" accept=".xls,.xlsx" style="display:none" onchange="importXLS(this)">
-    <button class="btn btn-accent" onclick="openAddTask()">+ Задача</button>
     <button class="btn" onclick="clearAllTasks()" style="background:var(--red-bg);color:var(--red);border:1px solid var(--red-border);">🗑 Все задачи</button>
   </div>
 </header>
@@ -420,6 +420,10 @@ h1{font-family:'Unbounded',sans-serif;font-size:19px;font-weight:700;letter-spac
     <button class="dept-tab" data-dept="3d" onclick="switchDept('3d')">
       🧊 3D
       <span class="dept-badge" id="badge-3d" style="background:rgba(240,84,84,.12);color:var(--dept-3d)"></span>
+    </button>
+    <button class="dept-tab" data-dept="manager" onclick="switchDept('manager')">
+      👑 Руководитель
+      <span class="dept-badge" id="badge-manager" style="background:rgba(167,139,250,.12);color:var(--dept-manager)"></span>
     </button>
   </div>
 </div>
@@ -552,6 +556,16 @@ h1{font-family:'Unbounded',sans-serif;font-size:19px;font-weight:700;letter-spac
   </div>
 </div>
 
+<!-- TASK POPUP (from timeline click) -->
+<div class="modal-overlay" id="modal-task-popup" onclick="closeOut(event,'modal-task-popup')">
+  <div class="modal" style="width:520px;max-height:90vh;overflow-y:auto;">
+    <div id="task-popup-body"></div>
+    <div class="modal-actions" style="margin-top:16px;">
+      <button class="btn-cancel" onclick="closeModal('modal-task-popup')">Закрыть</button>
+    </div>
+  </div>
+</div>
+
 <!-- BITRIX24 -->
 <div class="modal-overlay" id="modal-bx" onclick="closeOut(event,'modal-bx')">
   <div class="modal" style="width:500px">
@@ -660,6 +674,7 @@ h1{font-family:'Unbounded',sans-serif;font-size:19px;font-weight:700;letter-spac
         <option value="smm">📱 SMM</option>
         <option value="merch">🛍 Мерч</option>
         <option value="3d">🧊 3D</option>
+        <option value="manager">👑 Руководитель</option>
       </select>
     </div>
     <div id="team-list-modal"></div>
@@ -691,11 +706,12 @@ const MAX_HOURS  = 8;        // максимум в день
 const DAILY_CAP  = 6;        // лимит для планировщика
 
 const DEPT_META = {
-  design: { label:'Визуальный контент', icon:'🎨', color:'var(--dept-design)' },
-  video:  { label:'Продакшн',           icon:'🎬', color:'var(--dept-video)'  },
-  smm:    { label:'SMM',                icon:'📱', color:'var(--dept-smm)'    },
-  merch:  { label:'Мерч',               icon:'🛍', color:'var(--dept-merch)'  },
-  '3d':   { label:'3D',                 icon:'🧊', color:'var(--dept-3d)'     },
+  design:   { label:'Визуальный контент', icon:'🎨', color:'var(--dept-design)'   },
+  video:    { label:'Продакшн',           icon:'🎬', color:'var(--dept-video)'    },
+  smm:      { label:'SMM',                icon:'📱', color:'var(--dept-smm)'      },
+  merch:    { label:'Мерч',               icon:'🛍', color:'var(--dept-merch)'    },
+  '3d':     { label:'3D',                 icon:'🧊', color:'var(--dept-3d)'       },
+  manager:  { label:'Руководитель',       icon:'👑', color:'var(--dept-manager)'  },
 };
 
 const AV_POOL = ['av-s','av-d','av-m','av-p','av-e','av-f','av-g','av-h'];
@@ -756,6 +772,7 @@ let PERSONS = JSON.parse(localStorage.getItem('vc_team_v2')||'null') || [];
 function savePersons(){ localStorage.setItem('vc_team_v2', JSON.stringify(PERSONS)); }
 
 let tasks = [];
+let subtasks = [];
 let absences = {};
 let weekOffset = 0;
 let monthOffset = 0;
@@ -843,8 +860,25 @@ function buildSchedule(pi, activeTasks){
   if(_schedCache.has(cacheKey)) return _schedCache.get(cacheKey);
 
   const today=new Date(); today.setHours(0,0,0,0);
+  const todayStr=fmt(today);
 
-  // Собираем рабочие дни от сегодня до 180 дней вперёд
+  // Rolling replanning: effective hours = total hours / remaining workdays to deadline
+  // This means every morning the load is recalculated fresh from today
+  function effectiveHours(t){
+    const base=Math.max(parseFloat(t.hours)||0, 0.5);
+    // Count remaining workdays from today to deadline
+    const deadline=new Date(t.end+'T00:00:00');
+    if(deadline<today) return base; // overdue — use full hours
+    let workdays=0;
+    for(let d=new Date(today);d<=deadline;d.setDate(d.getDate()+1)){
+      if(d.getDay()>=1&&d.getDay()<=5&&!isAbsent(pi,fmt(d))) workdays++;
+    }
+    // If task was supposed to take N hours spread over M days,
+    // redistribute remaining hours evenly across remaining days
+    return base; // keep original hours, scheduler does even distribution
+  }
+
+  // Future workdays from today
   const futureDays=[];
   for(let i=0;i<180;i++){
     const d=new Date(today); d.setDate(today.getDate()+i);
@@ -852,31 +886,38 @@ function buildSchedule(pi, activeTasks){
     if(dow>=1&&dow<=5&&!isAbsent(pi,ds)) futureDays.push(ds);
   }
 
-  // Дневная нагрузка
   const dayLoad={};
   futureDays.forEach(ds=>dayLoad[ds]=0);
 
-  // Сортируем по дедлайну (ближе → приоритетнее)
-  const sorted=[...activeTasks].sort((a,b)=>a.end.localeCompare(b.end));
+  // Priority: overdue first (need immediate attention), then by deadline asc
+  const sorted=[...activeTasks].sort((a,b)=>{
+    const aOver=a.end<todayStr, bOver=b.end<todayStr;
+    if(aOver&&!bOver) return -1;
+    if(!aOver&&bOver) return 1;
+    return a.end.localeCompare(b.end);
+  });
 
   const schedule={};
   sorted.forEach(t=>{
     schedule[t.id]={};
     let remaining=Math.max(parseFloat(t.hours)||0, 0.5);
+    const isOverdue=t.end<todayStr;
 
-    // Диапазон дней задачи (не раньше сегодня, не позже дедлайна)
-    const taskStart=t.start>fmt(today)?t.start:fmt(today);
-    const taskEnd=t.end;
-    const taskDays=futureDays.filter(ds=>ds>=taskStart&&ds<=taskEnd);
+    // Range: always start from TODAY (rolling replanning)
+    // If deadline passed → put on today+next days (marked overdue visually)
+    const taskEnd=isOverdue?futureDays[Math.min(4,futureDays.length-1)]:t.end;
+    const taskDays=futureDays.filter(ds=>ds<=taskEnd);
+    const days=taskDays.length>0?taskDays:futureDays.slice(0,5);
 
-    // Если дней нет (дедлайн прошёл) — распределяем с сегодня
-    const days = taskDays.length>0 ? taskDays : futureDays.slice(0,14);
+    // Distribute evenly: calculate per-day target
+    const nDays=days.length||1;
+    const perDay=Math.min(Math.ceil(remaining/nDays*2)/2, DAILY_CAP); // round to 0.5h
 
     for(const ds of days){
       if(remaining<=0) break;
       const free=DAILY_CAP-dayLoad[ds];
       if(free<0.5) continue;
-      const chunk=Math.min(remaining, free, 2); // блоки по 2ч чтобы не монополизировать день
+      const chunk=Math.min(perDay, remaining, free);
       if(chunk<0.5) continue;
       schedule[t.id][ds]=(schedule[t.id][ds]||0)+chunk;
       dayLoad[ds]+=chunk;
@@ -884,7 +925,7 @@ function buildSchedule(pi, activeTasks){
       schedule[t.id][ds]=Math.round(schedule[t.id][ds]*100)/100;
     }
 
-    // Если осталось — добавляем за пределами дедлайна (лучше показать чем потерять)
+    // Spill overflow beyond deadline if anything remains
     if(remaining>0.1){
       for(const ds of futureDays){
         if(remaining<=0) break;
@@ -923,9 +964,10 @@ function dayTotalHours(pi, ds){
 // ══════════════════════════════════════════════
 async function loadFromDB(){
   try{
-    const [dbTasks,dbAbsences]=await Promise.all([
+    const [dbTasks,dbAbsences,dbSubs]=await Promise.all([
       sbFetch('tasks?select=*&order=created_at.asc'),
-      sbFetch('absences?select=*')
+      sbFetch('absences?select=*'),
+      sbFetch('subtasks?select=*&order=sort_order.asc')
     ]);
     tasks=dbTasks.map(t=>({
       id:t.id, name:t.name, designer:t.designer,
@@ -933,6 +975,10 @@ async function loadFromDB(){
       hours:parseFloat(t.hours)||2,
       bxId:t.bx_id||null, done:t.done||false,
       status:t.status||'Новые'
+    }));
+    subtasks=dbSubs.map(s=>({
+      id:s.id, taskId:s.task_id, name:s.name,
+      hours:parseFloat(s.hours)||1, done:s.done||false, sortOrder:s.sort_order||0
     }));
     absences={};
     dbAbsences.forEach(a=>{ absences[abKey(a.designer,a.date)]=a.id; });
@@ -979,7 +1025,7 @@ function renderOverview(weekDates){
   let refDate=weekDates.find(d=>isToday(d))||weekDates[0];
   const refStr=fmt(refDate);
 
-  const depts=['design','video','smm','merch','3d'];
+  const depts=['design','video','smm','merch','3d']; // manager shown separately
   let html='<div class="overview-grid">';
   depts.forEach(dept=>{
     const dm=DEPT_META[dept];
@@ -1028,6 +1074,33 @@ function renderOverview(weekDates){
     html+='</div>';
   });
   html+='</div>';
+
+  // Manager row — shows all persons with dept=manager
+  const managers=PERSONS.filter(p=>p.dept==='manager');
+  if(managers.length){
+    html+=`<div style="margin-top:16px;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 18px;border-top:3px solid var(--dept-manager);">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:.09em;margin-bottom:10px;color:var(--dept-manager);font-weight:600;">👑 Руководитель</div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;">`;
+    managers.forEach(p=>{
+      const pi=PERSONS.indexOf(p);
+      const avStyle=AV_STYLES[p.avClass]||'';
+      const active=tasks.filter(t=>t.designer===pi&&!t.done);
+      const sched=buildSchedule(pi,active);
+      const refStr=fmt(new Date());
+      let weekH=0;
+      weekDates.forEach(wd=>{ if(!isAbsent(pi,fmt(wd))) active.forEach(t=>{ weekH+=sched[t.id]?.[fmt(wd)]??0; }); });
+      const weekPct=Math.min(100,Math.round(weekH/(5*WORK_HOURS)*100));
+      html+=`<div style="display:flex;align-items:center;gap:8px;cursor:pointer;" onclick="switchDept('manager')">
+        <div class="ov-avatar" style="${avStyle}">${p.initials}</div>
+        <div>
+          <div style="font-size:13px;font-weight:500;">${p.name}</div>
+          <div style="font-size:10px;color:var(--muted);">${active.length} задач · ${weekPct}% нед.</div>
+        </div>
+      </div>`;
+    });
+    html+='</div></div>';
+  }
+
   document.getElementById('overview-view').innerHTML=html;
 }
 
@@ -1122,8 +1195,10 @@ function renderTeamList(deptPersons, weekDates){
 
     // Tasks HTML
     let tasksHTML='';
+    // Archived (done + status=Закрыта) — shown separately
+    const archivedTasks=myTasks.filter(t=>t.done&&t.status==='Закрыта');
     if(activeTasks.length===0){
-      tasksHTML='<div class="no-tasks">Нет задач — добавьте первую</div>';
+      tasksHTML='<div class="no-tasks">Нет активных задач</div>';
     } else {
       tasksHTML=activeTasks.map((t,li)=>{
         const color=TASK_COLORS[li%TASK_COLORS.length];
@@ -1165,6 +1240,21 @@ function renderTeamList(deptPersons, weekDates){
 
       if(hints.length) tasksHTML+=`<div class="smart-hints">${hints.map(h=>`<div class="hint-row">${h}</div>`).join('')}</div>`;
     }
+    // Append archived tasks collapsed
+    if(archivedTasks.length){
+      tasksHTML+=`<details style="margin-top:10px;">
+        <summary style="font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--hint);cursor:pointer;padding:6px 0;list-style:none;display:flex;align-items:center;gap:6px;">
+          <span>▸</span> Закрытые (${archivedTasks.length})
+        </summary>
+        <div style="margin-top:6px;opacity:.5;">
+          ${archivedTasks.map(t=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;text-decoration:line-through;color:var(--muted);">
+            <span style="font-size:10px;">✓</span>
+            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${t.name}</span>
+            <span style="font-size:10px;color:var(--hint);">${fmtH(t.hours)}</span>
+          </div>`).join('')}
+        </div>
+      </details>`;
+    }
 
     // Absences this week
     const absWeek=weekDates.filter(wd=>isAbsent(pi,fmt(wd)));
@@ -1182,17 +1272,29 @@ function renderTeamList(deptPersons, weekDates){
     block.className='person-block '+bCls;
     block.id='pb-'+pi;
     const bodyId='bd-'+pi;
+    block.setAttribute('draggable','true');
+    block.addEventListener('dragstart', e=>{ e.dataTransfer.setData('text/plain', pi); block.style.opacity='.5'; });
+    block.addEventListener('dragend',   e=>{ block.style.opacity='1'; });
+    block.addEventListener('dragover',  e=>{ e.preventDefault(); block.classList.add('drag-over'); });
+    block.addEventListener('dragleave', e=>{ block.classList.remove('drag-over'); });
+    block.addEventListener('drop',      e=>{ e.preventDefault(); block.classList.remove('drag-over');
+      const fromPi=parseInt(e.dataTransfer.getData('text/plain'));
+      if(fromPi===pi) return;
+      const fromIdx=PERSONS.indexOf(PERSONS[fromPi]);
+      const toIdx=PERSONS.indexOf(p);
+      [PERSONS[fromIdx],PERSONS[toIdx]]=[PERSONS[toIdx],PERSONS[fromIdx]];
+      savePersons(); render();
+    });
     block.innerHTML=`
       <div class="person-top" onclick="togglePerson('${bodyId}',this)">
+        <div class="drag-handle" title="Перетащить">⠿</div>
         <div class="avatar${allAbsent?' greyed':''}" style="${avStyle}">${p.initials}</div>
         <div class="person-info">
           <div class="person-name">${p.name} <span class="collapse-arrow">▾</span></div>
           <div class="person-sub">${allAbsent?'Отсутствует всю неделю':weekTotal>0?fmtH(weekTotal)+' на неделю · '+activeTasks.length+' задач':'Нет задач'}</div>
         </div>
         <div class="status-pill ${pCls}">${pTxt}</div>
-        <div class="person-actions">
-          <button class="mini-btn" onclick="event.stopPropagation();openAddTask(${pi})">+ Задача</button>
-        </div>
+<div class="person-actions"></div>
       </div>
       <div class="person-body" id="${bodyId}">
         <div class="days-row">${dayCells}</div>
@@ -1226,8 +1328,9 @@ function renderTeamList(deptPersons, weekDates){
 // ── Timeline ──
 function buildTimeline(myTasks, weekDates, pi){
   if(!myTasks.length) return '';
+  const sched=buildSchedule(pi,myTasks);
   const weekMs=(weekDates[4].getTime()+86400000)-weekDates[0].getTime();
-  const LANE_H=20, LANE_GAP=2;
+  const LANE_H=26, LANE_GAP=3;
   const bars=[];
   myTasks.forEach((t,li)=>{
     const tS=new Date(t.start+'T00:00:00'), tE=new Date(t.end+'T23:59:59');
@@ -1237,7 +1340,9 @@ function buildTimeline(myTasks, weekDates, pi){
     const lp=((cS-weekDates[0])/weekMs*100);
     const wp=((cE-cS)/weekMs*100);
     if(wp<=0) return;
-    bars.push({t,li,lp,wp});
+    // calc hours this week
+    let weekH=0; weekDates.forEach(wd=>{ weekH+=sched[t.id]?.[fmt(wd)]??0; });
+    bars.push({t,li,lp,wp,weekH});
   });
   if(!bars.length) return '';
   const laneEnds=[];
@@ -1245,14 +1350,26 @@ function buildTimeline(myTasks, weekDates, pi){
   const nl=laneEnds.length||1;
   const wh=nl*(LANE_H+LANE_GAP)-LANE_GAP;
   const marks=weekDates.slice(1).map((_,i)=>`<div class="tl-daymark" style="left:${((i+1)/5*100).toFixed(1)}%"></div>`).join('');
-  const barsH=bars.map(({t,li,lp,wp,lane})=>`
-    <div class="tl-bar tip-host" style="left:${lp.toFixed(1)}%;width:${wp.toFixed(1)}%;top:${lane*(LANE_H+LANE_GAP)}px;height:${LANE_H}px;background:${TASK_COLORS[li%TASK_COLORS.length]};border-radius:4px;position:absolute;display:flex;align-items:center;padding:0 5px;overflow:hidden;cursor:default;">
-      <span style="font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:rgba(0,0,0,.82);font-weight:600;">${t.name}</span>
-      <div class="tip">${t.name} · ${fmtH(t.hours)} · до ${fmtShort(new Date(t.end+'T00:00:00'))}</div>
-    </div>`).join('');
+  const taskIdx=tasks.indexOf; // for delete ref
+  const barsH=bars.map(({t,li,lp,wp,lane,weekH})=>{
+    const color=TASK_COLORS[li%TASK_COLORS.length];
+    const dl=dlLabel(t.end);
+    const tIdx=tasks.indexOf(t);
+    const mySubs=subtasks.filter(s=>s.taskId===t.id&&!s.done);
+    const subInfo=mySubs.length?` · ${mySubs.length} подзадач`:'';
+    return `<div class="tl-bar" onclick="showTaskPopup(${tIdx},event)"
+      style="left:${lp.toFixed(1)}%;width:${wp.toFixed(1)}%;top:${lane*(LANE_H+LANE_GAP)}px;height:${LANE_H}px;
+      background:${color};border-radius:5px;position:absolute;display:flex;align-items:center;
+      padding:0 8px;overflow:hidden;cursor:pointer;box-sizing:border-box;
+      ${t.end<fmt(new Date())?'opacity:.7;outline:2px solid var(--red);':''}"
+      title="${t.name}">
+      <span style="font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:rgba(0,0,0,.85);font-weight:600;">${t.name}</span>
+      ${weekH>0?`<span style="font-size:9px;color:rgba(0,0,0,.6);margin-left:5px;flex-shrink:0;">${fmtH(weekH)}</span>`:''}
+    </div>`;
+  }).join('');
   const lbls=DAYS5.map((d,i)=>`<div class="tl-lbl">${d} ${weekDates[i].getDate()}</div>`).join('');
   return `<div class="timeline-wrap-outer">
-    <div class="timeline-label">Таймлайн недели</div>
+    <div class="timeline-label">Таймлайн — нажми на задачу для деталей</div>
     <div class="timeline-inner" style="height:${wh+8}px;">${marks}${barsH}</div>
     <div class="tl-labels">${lbls}</div>
   </div>`;
@@ -1325,7 +1442,7 @@ function updateSummary(deptPersons, weekDates){
 }
 
 function updateBadges(){
-  ['design','video','smm','merch','3d'].forEach(dept=>{
+  ['design','video','smm','merch','3d','manager'].forEach(dept=>{
     const persons=PERSONS.filter(p=>p.dept===dept);
     const count=tasks.filter(t=>{
       const p=PERSONS[t.designer];
@@ -1726,7 +1843,7 @@ function openBitrixModal(){
   if(saved) document.getElementById('bx-webhook').value=saved;
   // Render dept group table
   const savedGroups=JSON.parse(localStorage.getItem('bx_dept_groups')||'{}');
-  const ALL_DEPTS=['design','video','smm','merch','3d'];
+  const ALL_DEPTS=['design','video','smm','merch','3d','manager'];
   document.getElementById('bx-dept-groups').innerHTML=ALL_DEPTS.map(dept=>{
     const dm=DEPT_META[dept];
     const gid=savedGroups[dept]||'';
@@ -1751,7 +1868,7 @@ async function bxFetch(){
 
   // Save group IDs per dept
   const groups={};
-  ['design','video','smm','merch','3d'].forEach(d=>{
+  ['design','video','smm','merch','3d','manager'].forEach(d=>{
     const el=document.getElementById('bxg-'+d);
     if(el&&el.value.trim()) groups[d]=el.value.trim();
   });
@@ -1991,7 +2108,7 @@ function importXLS(input){
       xlsParsed={tasks:parsed,users:[...users].sort()};
       const savedEx=JSON.parse(localStorage.getItem('bx_exclude_users')||'[]');
       const savedDepts=JSON.parse(localStorage.getItem('xls_person_depts')||'{}');
-      const deptOpts=['design','video','smm','merch','3d'].map(d=>`<option value="${d}">${DEPT_META[d].icon} ${DEPT_META[d].label}</option>`).join('');
+      const deptOpts=['design','video','smm','merch','3d','manager'].map(d=>`<option value="${d}">${DEPT_META[d].icon} ${DEPT_META[d].label}</option>`).join('');
       // Auto-detect dept from stream/project names
       const streamDeptGuess=stream=>{
         const s=(stream||'').toLowerCase();
@@ -2068,29 +2185,64 @@ async function doXLSImport(){
     nameMap[u]=idx;
   });
 
-  const toInsert=[];
-  let skippedDups=0;
+  // Split tasks into: new (insert), existing (update), missing from file (archive)
+  const toInsert=[], toUpdate=[];
+  const fileIds=new Set();
+
   xlsParsed.tasks.forEach(t=>{
     const di=nameMap[t.executor];
     if(di===undefined) return;
     if(skip.includes((t.status||'').toLowerCase())) return;
-    // Skip duplicates by bxId
-    if(t.bxId&&tasks.find(tt=>tt.bxId===t.bxId)){ skippedDups++; return; }
-    toInsert.push({name:t.name,designer:di,start_date:t.start,end_date:t.deadline,hours:t.hours&&t.hours>=0.5?t.hours:defH,bx_id:t.bxId,done:false,status:t.status||'Новые'});
+    const hours=t.hours&&t.hours>=0.5?t.hours:defH;
+    if(t.bxId) fileIds.add(t.bxId);
+    const existing=t.bxId?tasks.find(tt=>tt.bxId===t.bxId):null;
+    if(existing){
+      // Update: status, deadline, hours might have changed
+      toUpdate.push({task:existing, name:t.name, designer:di, start:t.start, end:t.deadline, hours, status:t.status||existing.status});
+    } else {
+      toInsert.push({name:t.name,designer:di,start_date:t.start,end_date:t.deadline,hours,bx_id:t.bxId,done:false,status:t.status||'Новые'});
+    }
   });
 
-  if(!toInsert.length){
-    const msg=skippedDups>0
-      ? `Все ${skippedDups} задач уже импортированы ранее.\n\nЧтобы импортировать заново — нажми «Очистить историю импорта» и попробуй снова.`
-      : 'Нет задач для импорта (все исключены или отложены)';
-    alert(msg); return;
+  // Tasks in DB that are NOT in the new file → archive (mark done + status=Закрыта)
+  const toArchive=tasks.filter(t=>t.bxId&&!fileIds.has(t.bxId)&&!t.done);
+
+  if(!toInsert.length&&!toUpdate.length&&!toArchive.length){
+    alert('Нет изменений — файл совпадает с текущими данными'); return;
   }
+
   const btn=document.querySelector('#xls-s1 .btn-save'); btn.textContent='Сохраняю...'; btn.disabled=true;
   try{
-    const res=await sbFetch('tasks',{method:'POST',body:JSON.stringify(toInsert)});
-    res.forEach(t=>{ tasks.push({id:t.id,name:t.name,designer:t.designer,start:t.start_date,end:t.end_date,hours:parseFloat(t.hours),bxId:t.bx_id,done:false,status:t.status||'Новые'}); });
-    const msg=skippedDups>0?`✓ Импортировано ${res.length} задач (${skippedDups} пропущено — дубли)`:`✓ Импортировано ${res.length} задач из ${xlsParsed.tasks.length}`;
-    document.getElementById('xls-done').innerHTML=msg;
+    let added=0, updated=0, archived=0;
+
+    // INSERT new tasks
+    if(toInsert.length){
+      const res=await sbFetch('tasks',{method:'POST',body:JSON.stringify(toInsert),
+        headers:{'Prefer':'return=representation,resolution=ignore-duplicates'},
+        prefer:'return=representation,resolution=ignore-duplicates'});
+      res.forEach(t=>{ tasks.push({id:t.id,name:t.name,designer:t.designer,start:t.start_date,end:t.end_date,hours:parseFloat(t.hours),bxId:t.bx_id,done:false,status:t.status||'Новые'}); added++; });
+    }
+
+    // UPDATE existing tasks (status, deadline, hours)
+    for(const {task,name,designer,start,end,hours,status} of toUpdate){
+      const changed=task.name!==name||task.end!==end||task.hours!==hours||task.status!==status||task.designer!==designer;
+      if(!changed) continue;
+      task.name=name; task.end=end; task.hours=hours; task.status=status; task.designer=designer; task.start=start;
+      updated++;
+      try{ await sbFetch('tasks?id=eq.'+task.id,{method:'PATCH',body:JSON.stringify({name,designer,start_date:start,end_date:end,hours,status}),prefer:'return=minimal'}); }catch(e){}
+    }
+
+    // ARCHIVE tasks missing from file
+    for(const task of toArchive){
+      task.done=true; task.status='Закрыта'; archived++;
+      try{ await sbFetch('tasks?id=eq.'+task.id,{method:'PATCH',body:JSON.stringify({done:true,status:'Закрыта'}),prefer:'return=minimal'}); }catch(e){}
+    }
+
+    const parts=[];
+    if(added)    parts.push(`+${added} новых`);
+    if(updated)  parts.push(`↻ ${updated} обновлено`);
+    if(archived) parts.push(`✓ ${archived} закрыто`);
+    document.getElementById('xls-done').innerHTML=`✓ ${parts.join(' · ')}`;
     document.querySelectorAll('#modal-xls .bx-step').forEach((el,i)=>el.classList.toggle('active',i===1));
     _schedCache.clear(); render();
   }catch(e){ alert('Ошибка: '+e.message); }
@@ -2115,6 +2267,167 @@ async function clearAllTasks(){
 // ══════════════════════════════════════════════
 //  MISC
 // ══════════════════════════════════════════════
+// ══════════════════════════════════════════════
+//  TASK POPUP — click on timeline bar
+// ══════════════════════════════════════════════
+function showTaskPopup(tIdx, e){
+  if(e) e.stopPropagation();
+  const t=tasks[tIdx];
+  if(!t) return;
+  const p=PERSONS[t.designer];
+  const avStyle=AV_STYLES[p?.avClass]||'';
+  const dl=dlLabel(t.end);
+  const ss=stStyle(t.status||'Новые');
+  const mySubs=subtasks.filter(s=>s.taskId===t.id);
+  const doneH=mySubs.filter(s=>s.done).reduce((a,s)=>a+s.hours,0);
+  const totalSubH=mySubs.reduce((a,s)=>a+s.hours,0);
+  const isVideo=p?.dept==='video'; // subtasks only for video/prodakshn
+
+  // Week distribution
+  const weekDates=getWeekDates(weekOffset);
+  const active=tasks.filter(tt=>tt.designer===t.designer&&!tt.done);
+  const sched=buildSchedule(t.designer,active);
+  const weekRows=weekDates.map((wd,i)=>{
+    const h=sched[t.id]?.[fmt(wd)]??0;
+    if(!h) return '';
+    const pct=Math.min(100,Math.round(h/WORK_HOURS*100));
+    return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;">
+      <div style="font-size:11px;color:var(--muted);width:28px;">${DAYS5[i]}</div>
+      <div style="flex:1;height:4px;background:var(--border);border-radius:2px;overflow:hidden;">
+        <div style="height:100%;width:${pct}%;background:${TASK_COLORS[tIdx%TASK_COLORS.length]};border-radius:2px;"></div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);width:32px;text-align:right;">${fmtH(h)}</div>
+    </div>`;
+  }).join('');
+
+  // Subtask list
+  let subsHTML='';
+  if(mySubs.length){
+    const pctDone=totalSubH>0?Math.round(doneH/totalSubH*100):0;
+    subsHTML=`<div style="margin-top:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);">Подзадачи</div>
+        <div style="font-size:11px;color:var(--muted);">${pctDone}% готово · ${fmtH(doneH)} из ${fmtH(totalSubH)}</div>
+      </div>
+      <div style="height:3px;background:var(--border);border-radius:2px;margin-bottom:10px;overflow:hidden;">
+        <div style="height:100%;width:${pctDone}%;background:var(--green);border-radius:2px;"></div>
+      </div>
+      ${mySubs.map((s,si)=>{
+        const sIdx=subtasks.indexOf(s);
+        return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);${s.done?'opacity:.45;':''}">
+          <button onclick="toggleSubtask(${sIdx})" style="background:none;border:1px solid var(--border2);border-radius:50%;width:20px;height:20px;cursor:pointer;color:${s.done?'var(--green)':'var(--hint)'};font-size:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;padding:0;${s.done?'background:var(--green-bg);border-color:var(--green);':''}">${s.done?'✓':'○'}</button>
+          <span style="flex:1;font-size:12px;${s.done?'text-decoration:line-through;':''}">${s.name}</span>
+          <input type="number" value="${s.hours}" min="0.5" max="100" step="0.5" onclick="event.stopPropagation()"
+            onchange="updateSubtaskHours(${sIdx},this.value)"
+            style="width:50px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);font-size:11px;padding:2px 6px;text-align:right;outline:none;">
+          <button onclick="deleteSubtask(${sIdx})" style="background:none;border:none;color:var(--hint);cursor:pointer;font-size:15px;padding:0 2px;line-height:1;">×</button>
+        </div>`;
+      }).join('')}
+    </div>`;
+  }
+
+  // Add subtask form (all depts can add subtasks)
+  const addSubForm=`<div style="display:flex;gap:8px;margin-top:12px;">
+    <input id="new-sub-name-${tIdx}" class="form-input" placeholder="Название подзадачи" style="flex:1;font-size:12px;padding:7px 10px;">
+    <input id="new-sub-h-${tIdx}" type="number" value="1" min="0.5" max="100" step="0.5" class="form-input" style="width:60px;font-size:12px;padding:7px 8px;">
+    <button onclick="addSubtask(${tIdx})" class="btn btn-accent" style="padding:7px 14px;font-size:12px;">+ Подзадача</button>
+  </div>`;
+
+  // Deadline editor
+  const deadlineEdit=`<div style="display:flex;align-items:center;gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
+    <span style="font-size:11px;color:var(--muted);flex-shrink:0;">Дедлайн:</span>
+    <input type="date" value="${t.end}" class="form-input" style="flex:1;font-size:12px;padding:6px 10px;"
+      onchange="updateTaskDeadline(${tIdx},this.value,${isVideo?'true':'false'})">
+    <span style="font-size:11px;color:var(--muted);flex-shrink:0;">Часы:</span>
+    <input type="number" value="${t.hours}" min="0.5" max="200" step="0.5" class="form-input" style="width:70px;font-size:12px;padding:6px 8px;"
+      onchange="updateTaskHours(${tIdx},this.value)">
+  </div>`;
+
+  document.getElementById('task-popup-body').innerHTML=`
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+      <div style="width:10px;height:10px;border-radius:50%;background:${TASK_COLORS[tIdx%TASK_COLORS.length]};flex-shrink:0;"></div>
+      <div style="flex:1;">
+        <div style="font-size:15px;font-weight:600;line-height:1.3;">${t.name}</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:5px;flex-wrap:wrap;">
+          <span style="font-size:11px;padding:2px 9px;border-radius:10px;background:${ss.bg};color:${ss.color};border:1px solid ${ss.border};">${t.status||'Новые'}</span>
+          <span class="task-dl ${dl.cls}" style="font-size:11px;">${dl.txt}</span>
+          ${p?`<span style="font-size:11px;color:var(--muted);">→ ${p.name}</span>`:''}
+        </div>
+      </div>
+    </div>
+    <div style="background:var(--surface2);border-radius:10px;padding:12px 14px;margin-bottom:12px;">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--hint);margin-bottom:8px;">Нагрузка на этой неделе</div>
+      ${weekRows||'<div style="font-size:11px;color:var(--hint);">Нет нагрузки на этой неделе</div>'}
+      <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-size:11px;color:var(--muted);">
+        <span>Итого плановых: ${fmtH(t.hours)}</span>
+        ${mySubs.length?`<span>${fmtH(doneH)} из ${fmtH(totalSubH)} по подзадачам</span>`:''}
+      </div>
+    </div>
+    ${subsHTML}
+    ${addSubForm}
+    ${deadlineEdit}`;
+
+  document.getElementById('modal-task-popup').classList.add('open');
+}
+
+// ── Subtask CRUD ───────────────────────────────
+async function addSubtask(tIdx){
+  const t=tasks[tIdx];
+  if(!t) return;
+  const nameEl=document.getElementById('new-sub-name-'+tIdx);
+  const hEl=document.getElementById('new-sub-h-'+tIdx);
+  const name=nameEl?.value.trim();
+  if(!name){ nameEl?.focus(); return; }
+  const hours=parseFloat(hEl?.value)||1;
+  const sortOrder=subtasks.filter(s=>s.taskId===t.id).length;
+  try{
+    const res=await sbFetch('subtasks',{method:'POST',body:JSON.stringify({task_id:t.id,name,hours,done:false,sort_order:sortOrder})});
+    subtasks.push({id:res[0].id,taskId:t.id,name,hours,done:false,sortOrder});
+    if(nameEl) nameEl.value='';
+    _schedCache.clear();
+    showTaskPopup(tIdx);
+    render();
+  }catch(e){ alert('Ошибка: '+e.message); }
+}
+
+async function toggleSubtask(sIdx){
+  const s=subtasks[sIdx]; s.done=!s.done;
+  // Find parent task index
+  const tIdx=tasks.findIndex(t=>t.id===s.taskId);
+  try{ await sbFetch('subtasks?id=eq.'+s.id,{method:'PATCH',body:JSON.stringify({done:s.done}),prefer:'return=minimal'}); }catch(e){}
+  _schedCache.clear();
+  showTaskPopup(tIdx);
+  render();
+}
+
+async function deleteSubtask(sIdx){
+  const s=subtasks[sIdx];
+  const tIdx=tasks.findIndex(t=>t.id===s.taskId);
+  subtasks.splice(sIdx,1);
+  try{ await sbFetch('subtasks?id=eq.'+s.id,{method:'DELETE',prefer:''}); }catch(e){}
+  _schedCache.clear();
+  showTaskPopup(tIdx);
+  render();
+}
+
+async function updateSubtaskHours(sIdx,val){
+  const s=subtasks[sIdx]; s.hours=parseFloat(val)||1;
+  const tIdx=tasks.findIndex(t=>t.id===s.taskId);
+  try{ await sbFetch('subtasks?id=eq.'+s.id,{method:'PATCH',body:JSON.stringify({hours:s.hours}),prefer:'return=minimal'}); }catch(e){}
+  _schedCache.clear(); render();
+}
+
+// Update task deadline + cascade subtasks deadline shift (for video dept)
+async function updateTaskDeadline(tIdx,newEnd,cascade){
+  const t=tasks[tIdx];
+  if(!t||newEnd===t.end) return;
+  const oldEnd=t.end;
+  t.end=newEnd;
+  _schedCache.clear();
+  showTaskPopup(tIdx); render();
+  try{ await sbFetch('tasks?id=eq.'+t.id,{method:'PATCH',body:JSON.stringify({end_date:newEnd}),prefer:'return=minimal'}); }catch(e){}
+}
+
 function showSync(text){
   let b=document.getElementById('sync-badge');
   if(!b){ b=document.createElement('div'); b.id='sync-badge'; document.body.appendChild(b); }
