@@ -750,13 +750,16 @@ const SB_URL = 'https://esbihlmewoycupizxoor.supabase.co';
 const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVzYmlobG1ld295Y3VwaXp4b29yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkwNDQ2NzQsImV4cCI6MjA5NDYyMDY3NH0.JpqhpkHA77B8QcY3AWttWDy7PObniHdH9mjFOzAuUZE';
 
 async function sbFetch(path, opts={}) {
+  const {headers: extraHeaders, prefer, ...restOpts} = opts;
   const res = await fetch(SB_URL+'/rest/v1/'+path, {
+    ...restOpts,
     headers:{
-      'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY,
+      'apikey':SB_KEY,
+      'Authorization':'Bearer '+SB_KEY,
       'Content-Type':'application/json',
-      'Prefer': opts.prefer||'return=representation',
-      ...opts.headers
-    }, ...opts
+      'Prefer': prefer||'return=representation',
+      ...(extraHeaders||{})
+    }
   });
   if(!res.ok){ const e=await res.text(); throw new Error(e); }
   const t=await res.text(); return t?JSON.parse(t):[];
