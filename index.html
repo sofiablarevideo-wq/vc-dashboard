@@ -314,7 +314,6 @@ const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZ
 const BX_WH='https://spectrum.bitrix24.ru/rest/158/gn998j287l5efo8s/';
 const DEF_GROUPS={design:'48',smm:'188',video:'80',merch:'74'};
 
-// Справочник сотрудников: bxId → {name, initials, dept}
 const BX_USERS={
   '134': {name:'Михаил Кондрашенко', initials:'МК', dept:'design'},
   '136': {name:'Дарья Котанова',     initials:'ДК', dept:'design'},
@@ -333,8 +332,6 @@ const WORK_H=6, MAX_H=8, DEF_H=2;
 const APPROVAL_ST=['Согласование','Ждёт контроля'];
 const POSTPONED_ST=['Отложено','Отложена'];
 const DONE_ST=['Сдано и сдано','Завершена','Закрыта','Сдано'];
-
-// ИСПРАВЛЕННОЕ СООТВЕТСТВИЕ СТАТУСОВ БИТРИКСА
 const BX_ST={'1':'Новые','2':'Очередь в работу','3':'Создание','4':'Согласование','5':'Завершена','6':'Отложено','7':'Отклонена'};
 
 const DEPTS=[
@@ -356,15 +353,12 @@ const TC=['#4ade80','#818cf8','#f472b6','#fb923c','#60a5fa','#34d399','#fbbf24',
 const DS=['Пн','Вт','Ср','Чт','Пт'];
 const MS=['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
 
-// ══════════════════════════
-// STATE
-// ══════════════════════════
 let tasks=[],absences={};
 let persons=JSON.parse(localStorage.getItem('vc_p4')||'null')||[];
 let weekOff=0,curDept='overview';
 let expanded={};
 let bxRaw=[];
-let personView={}; // pi -> 'plan'|'kanban'
+let personView={}; 
 let _sc=new Map();
 
 function savePers(){localStorage.setItem('vc_p4',JSON.stringify(persons));}
@@ -408,8 +402,6 @@ async function sb(path,opts={}){
 async function loadDB(retry=3){
   try{
     const[dT,dA]=await Promise.all([sb('tasks?select=*&order=created_at.asc'),sb('absences?select=*')]);
-    
-    // ИСПРАВЛЕННАЯ ЛОГИКА ПРИВЯЗКИ ID (защита от смещения индексов)
     tasks=dT.map(t=>{
       let di = t.designer;
       if(t.bx_id){
@@ -419,7 +411,6 @@ async function loadDB(retry=3){
       }
       return {id:t.id,name:t.name,designer:di,start:t.start_date,end:t.end_date,hours:parseFloat(t.hours)||DEF_H,bxId:t.bx_id||null,done:t.done||false,status:t.status||'Новые'};
     });
-    
     absences={};dA.forEach(a=>{absences[a.designer+'_'+a.date]=a.id;});
     _sc.clear();setSyncOk(true);
   }catch(e){
@@ -453,12 +444,10 @@ function buildSched(pi,active){
     const range=wdays.filter(ds=>ds>=start&&ds<=end);
     const days=range.length?range:wdays.slice(0,14);
     if(h<=2){
-      // Don't split
       let placed=false;
       for(const ds of days){if(load[ds]+h<=MAX_H){sched[t.id][ds]=h;load[ds]+=h;placed=true;break;}}
       if(!placed&&days.length){const ds=days[0];sched[t.id][ds]=(sched[t.id][ds]||0)+h;load[ds]+=h;}
     } else {
-      // Split 2-3h chunks
       let rem=h;
       const ideal=Math.min(3,Math.max(2,Math.ceil(h/days.length)));
       for(const ds of days){
@@ -641,7 +630,6 @@ function renderCard(p,wk){
     const hStr=absent?'нет':h<=0?'—':fmtH(h);
     const hCol=absent||h<=0?'var(--t3)':col;
 
-    // Tasks this day
     const dayTasks=absent?[]:plan.filter(t=>(sc[t.id]?.[ds]??0)>0);
     const taskChips=dayTasks.map(t=>{
       const tIdx=tasks.indexOf(t);
@@ -772,7 +760,6 @@ function setPersonView(pi,view){
 }
 
 function renderKanban(pi,allTasks){
-  // All tasks except done
   const visible=allTasks.filter(t=>!DONE_ST.includes(t.status));
   const tStr=tds();
   const cols=KB_COLS.map(col=>{
@@ -814,7 +801,6 @@ function stStyle(st){
 }
 
 function showKbTask(tIdx){
-  // Reuse existing task popup
   showTask(tIdx);
 }
 
@@ -852,6 +838,22 @@ function openBx(){
 }
 function bxStep(n){document.querySelectorAll('.bx-step').forEach((el,i)=>el.classList.toggle('active',i===n-1));}
 
+// Вспомогательная функция для обхода лимита в 50 задач
+async function fetchBxPaginated(wh, params) {
+  let res = [], start = 0;
+  for(let i = 0; i < 20; i++) { // Защитный лимит на 1000 задач
+    params.set('start', start);
+    try {
+      const r = await fetch(wh + 'tasks.task.list?' + params, {signal: AbortSignal.timeout(15000)});
+      if(!r.ok) break;
+      const d = await r.json();
+      res.push(...(d.result?.tasks || []));
+      if(d.next) start = d.next; else break;
+    } catch(e) { break; }
+  }
+  return res;
+}
+
 async function bxLoad(){
   const wh=document.getElementById('bx-url').value.trim().replace(/\/$/,'')+'/';
   localStorage.setItem('bx_wh',wh);
@@ -863,47 +865,40 @@ async function bxLoad(){
     const fB=d=>d.toISOString().slice(0,10)+'T00:00:00+03:00';
     let all=[];
 
-    // Single request - filter by responsible IDs only
     const bxIds=Object.keys(BX_USERS);
     if(bxIds.length){
-      // Request 1: active tasks
+      // Запрос 1: активные задачи (с пагинацией)
       const p1=new URLSearchParams();
       ['ID','TITLE','DEADLINE','CREATED_DATE','TIME_ESTIMATE','RESPONSIBLE_ID','RESPONSIBLE','STATUS','GROUP_ID'].forEach(f=>p1.append('select[]',f));
       ['1','2','3','4'].forEach(s=>p1.append('filter[STATUS][]',s));
       bxIds.forEach(id=>p1.append('filter[RESPONSIBLE_ID][]',id));
-      p1.set('order[DEADLINE]','ASC');p1.set('limit','500');
-      try{
-        const r=await fetch(wh+'tasks.task.list?'+p1,{signal:AbortSignal.timeout(15000)});
-        if(r.ok){const d=await r.json();(d.result?.tasks||[]).forEach(t=>{
-          const gDept=Object.entries(groups).find(([,gid])=>gid===String(t.GROUP_ID))?.[0]||BX_USERS[String(t.responsible?.id)]?.dept||'design';
-          all.push({...t,_dept:gDept});
-        });}
-      }catch(e){console.warn('fetch1',e);}
-      // Request 2: approval tasks (no deadline filter)
+      
+      const arr1 = await fetchBxPaginated(wh, p1);
+      arr1.forEach(t=>{
+        const gDept=Object.entries(groups).find(([,gid])=>gid===String(t.GROUP_ID))?.[0]||BX_USERS[String(t.responsible?.id)]?.dept||'design';
+        all.push({...t,_dept:gDept});
+      });
+
+      // Запрос 2: задачи на согласовании (с пагинацией)
       const p2=new URLSearchParams();
       ['ID','TITLE','DEADLINE','CREATED_DATE','TIME_ESTIMATE','RESPONSIBLE_ID','RESPONSIBLE','STATUS','GROUP_ID'].forEach(f=>p2.append('select[]',f));
       ['6','7'].forEach(s=>p2.append('filter[STATUS][]',s));
       bxIds.forEach(id=>p2.append('filter[RESPONSIBLE_ID][]',id));
-      p2.set('limit','500');
-      try{
-        const r=await fetch(wh+'tasks.task.list?'+p2,{signal:AbortSignal.timeout(15000)});
-        if(r.ok){const d=await r.json();(d.result?.tasks||[]).forEach(t=>{
-          const gDept=Object.entries(groups).find(([,gid])=>gid===String(t.GROUP_ID))?.[0]||BX_USERS[String(t.responsible?.id)]?.dept||'design';
-          all.push({...t,_dept:gDept});
-        });}
-      }catch(e){console.warn('fetch2',e);}
+      
+      const arr2 = await fetchBxPaginated(wh, p2);
+      arr2.forEach(t=>{
+        const gDept=Object.entries(groups).find(([,gid])=>gid===String(t.GROUP_ID))?.[0]||BX_USERS[String(t.responsible?.id)]?.dept||'design';
+        all.push({...t,_dept:gDept});
+      });
     }
 
     const seen=new Set();all=all.filter(t=>{if(seen.has(t.id))return false;seen.add(t.id);return true;});
     if(!all.length){document.querySelector('#bx-s2 div').textContent='Задачи не найдены.';return;}
     bxRaw=all;
 
-    // Auto-resolve users from BX_USERS directory
-    // Ensure all known users exist in persons array
     Object.entries(BX_USERS).forEach(([bxId,u])=>{
-      let pi=persons.findIndex(p=>p.bxId===bxId);
+      let pi=persons.findIndex(p=>String(p.bxId)===String(bxId));
       if(pi<0){
-        // Try match by name
         pi=persons.findIndex(p=>p.name===u.name);
         if(pi>=0){ persons[pi].bxId=bxId; persons[pi].dept=u.dept; persons[pi].initials=u.initials; savePers(); }
         else {
@@ -915,12 +910,11 @@ async function bxLoad(){
       }
     });
 
-    // Show resolved mapping (read-only confirmation)
     const users={};
     all.forEach(t=>{ if(t.responsible) users[t.responsible.id]=t.responsible.name||''; });
     document.getElementById('bx-umap').innerHTML=Object.entries(users).map(([uid,uname])=>{
       const known=BX_USERS[uid];
-      const pi=persons.findIndex(p=>p.bxId===uid);
+      const pi=persons.findIndex(p=>String(p.bxId)===String(uid));
       const dm=known?DM[known.dept]:null;
       return `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0;border-bottom:1px solid var(--b1);align-items:center;padding:8px 10px;">
         <div style="font-size:12px;color:var(--t1);">${uname}</div>
@@ -945,7 +939,6 @@ async function bxLoad(){
   }catch(e){document.querySelector('#bx-s2 div').innerHTML=`<span style="color:var(--red)">⚠ ${e.message}</span>`;}
 }
 function bxMapChange(uid){
-  // When person selected - auto-set dept from that person
   const sel=document.getElementById('bxm-'+uid);
   const pi=parseInt(sel.value);
   if(!isNaN(pi)&&persons[pi]){
@@ -966,13 +959,13 @@ async function bxImport(){
   if(!checked.length){toast('Выберите задачи');return;}
   const btn=document.querySelector('#bx-s3 .msave');btn.textContent='Сохраняю...';btn.disabled=true;
 
-  // Build mapping using BX_USERS directory (by bxId)
   const um={};
   checked.forEach(i=>{
     const t=bxRaw[i]; if(!t||!t.responsible) return;
     const uid=String(t.responsible.id);
     if(um[uid]!==undefined) return;
-    const pi=persons.findIndex(p=>p.bxId===uid);
+    // ЖЕСТКАЯ ПРИВЯЗКА ТИПОВ ДАННЫХ
+    const pi=persons.findIndex(p=>String(p.bxId)===uid);
     um[uid]=pi>=0?pi:null;
   });
 
@@ -1011,26 +1004,27 @@ async function bxAutoSync(){
     const td=new Date(),fut=new Date(td.getTime()+30*86400000);
     const fB=d=>d.toISOString().slice(0,10)+'T00:00:00+03:00';
     let all=[];
-    // Active tasks
+    
     const p1=new URLSearchParams();
     ['ID','TITLE','DEADLINE','CREATED_DATE','TIME_ESTIMATE','RESPONSIBLE_ID','RESPONSIBLE','STATUS','GROUP_ID'].forEach(f=>p1.append('select[]',f));
     ['1','2','3','4'].forEach(s=>p1.append('filter[STATUS][]',s));
     bxIds.forEach(id=>p1.append('filter[RESPONSIBLE_ID][]',id));
-    p1.set('limit','500');
-    try{const r=await fetch(wh+'tasks.task.list?'+p1,{signal:AbortSignal.timeout(10000)});if(r.ok){const d=await r.json();(d.result?.tasks||[]).forEach(t=>all.push(t));}}catch(e){}
-    // Approval tasks (no deadline filter)
+    const arr1 = await fetchBxPaginated(wh, p1);
+    arr1.forEach(t=>all.push(t));
+    
     const p2=new URLSearchParams();
     ['ID','TITLE','DEADLINE','CREATED_DATE','TIME_ESTIMATE','RESPONSIBLE_ID','RESPONSIBLE','STATUS','GROUP_ID'].forEach(f=>p2.append('select[]',f));
     ['6','7'].forEach(s=>p2.append('filter[STATUS][]',s));
     bxIds.forEach(id=>p2.append('filter[RESPONSIBLE_ID][]',id));
-    p2.set('limit','500');
-    try{const r=await fetch(wh+'tasks.task.list?'+p2,{signal:AbortSignal.timeout(10000)});if(r.ok){const d=await r.json();(d.result?.tasks||[]).forEach(t=>all.push(t));}}catch(e){}
+    const arr2 = await fetchBxPaginated(wh, p2);
+    arr2.forEach(t=>all.push(t));
+
     const seen=new Set();all=all.filter(t=>{if(seen.has(t.id))return false;seen.add(t.id);return true;});
     let changed=false;
     for(const t of all){
       const bxId='bx_'+t.id;
       const uid=String(t.responsible?.id||'');
-      const di=persons.findIndex(p=>p.bxId===uid);
+      const di=persons.findIndex(p=>String(p.bxId)===uid);
       if(di<0) continue;
       const dl=t.deadline?t.deadline.slice(0,10):fmt(td0()),hours=t.timeEstimate?Math.round(t.timeEstimate/3600*10)/10:DEF_H,status=BX_ST[t.status]||'Новые';
       const ex=tasks.find(tt=>tt.bxId===bxId);
@@ -1068,7 +1062,6 @@ function addMember(){
   const dept=document.getElementById('team-dept').value;
   const bxId=document.getElementById('new-bxid')?.value.trim()||'';
   if(!name)return;
-  // Check if bxId already in BX_USERS, update it
   if(bxId) BX_USERS[bxId]={name,initials:init,dept};
   persons.push({name,initials:init,dept,bxId:bxId||undefined,active:true});savePers();
   document.getElementById('new-name').value='';
