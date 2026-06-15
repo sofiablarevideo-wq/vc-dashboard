@@ -237,6 +237,7 @@ button{font-family:inherit;cursor:pointer;}
   <div id="main-content"></div>
 </div>
 
+<!-- BITRIX MODAL -->
 <div class="overlay" id="modal-bx" onclick="closeOut(event,'modal-bx')">
   <div class="modal" style="width:500px">
     <h3>Битрикс24</h3>
@@ -272,12 +273,14 @@ button{font-family:inherit;cursor:pointer;}
   </div>
 </div>
 
+<!-- TASK POPUP -->
 <div class="overlay" id="modal-task" onclick="closeOut(event,'modal-task')">
   <div class="modal" style="width:480px"><div id="task-body"></div>
     <div class="mactions"><button class="mcancel" onclick="closeModal('modal-task')">Закрыть</button></div>
   </div>
 </div>
 
+<!-- TEAM MODAL -->
 <div class="overlay" id="modal-team" onclick="closeOut(event,'modal-team')">
   <div class="modal">
     <h3>Команда</h3>
@@ -330,7 +333,9 @@ const WORK_H=6, MAX_H=8, DEF_H=2;
 const APPROVAL_ST=['Согласование','Ждёт контроля'];
 const POSTPONED_ST=['Отложено','Отложена'];
 const DONE_ST=['Сдано и сдано','Завершена','Закрыта','Сдано'];
-const BX_ST={'1':'Новые','2':'Очередь в работу','3':'Создание','4':'Отложено','5':'Завершена','6':'Согласование','7':'Ждёт контроля'};
+
+// ИСПРАВЛЕННОЕ СООТВЕТСТВИЕ СТАТУСОВ БИТРИКСА
+const BX_ST={'1':'Новые','2':'Очередь в работу','3':'Создание','4':'Согласование','5':'Завершена','6':'Отложено','7':'Отклонена'};
 
 const DEPTS=[
   {id:'design',label:'Визуальный контент',icon:'🎨',color:'#16a34a'},
@@ -403,7 +408,18 @@ async function sb(path,opts={}){
 async function loadDB(retry=3){
   try{
     const[dT,dA]=await Promise.all([sb('tasks?select=*&order=created_at.asc'),sb('absences?select=*')]);
-    tasks=dT.map(t=>({id:t.id,name:t.name,designer:t.designer,start:t.start_date,end:t.end_date,hours:parseFloat(t.hours)||DEF_H,bxId:t.bx_id||null,done:t.done||false,status:t.status||'Новые'}));
+    
+    // ИСПРАВЛЕННАЯ ЛОГИКА ПРИВЯЗКИ ID (защита от смещения индексов)
+    tasks=dT.map(t=>{
+      let di = t.designer;
+      if(t.bx_id){
+        const uid = String(t.bx_id).replace('bx_','');
+        const realPi = persons.findIndex(p=>String(p.bxId)===uid);
+        if(realPi>=0) di = realPi;
+      }
+      return {id:t.id,name:t.name,designer:di,start:t.start_date,end:t.end_date,hours:parseFloat(t.hours)||DEF_H,bxId:t.bx_id||null,done:t.done||false,status:t.status||'Новые'};
+    });
+    
     absences={};dA.forEach(a=>{absences[a.designer+'_'+a.date]=a.id;});
     _sc.clear();setSyncOk(true);
   }catch(e){
@@ -571,7 +587,7 @@ function renderOverview(wk){
   });
   html+='</div>';
   const mgrs=persons.filter(p=>p.dept==='manager');
-  if(mgrs.length)html+=`<div style="margin-top:12px;background:var(--s1);border:1px solid var(--b1);border-radius:var(--r);padding:14px 16px;"><div class="ov-dept">👑 Руководство</div><div style="display:flex;gap:14px;flex-wrap:wrap;">${mgrs.map(p=>{const pi=persons.indexOf(p);return`<div style="display:flex;align-items:center;gap:77px;"><div class="ov-avatar" style="${avS(pi)}">${p.initials||p.name.slice(0,2)}</div><div style="font-size:13px;font-weight:500;">${p.name}</div></div>`;}).join('')}</div></div>`;
+  if(mgrs.length)html+=`<div style="margin-top:12px;background:var(--s1);border:1px solid var(--b1);border-radius:var(--r);padding:14px 16px;"><div class="ov-dept">👑 Руководство</div><div style="display:flex;gap:14px;flex-wrap:wrap;">${mgrs.map(p=>{const pi=persons.indexOf(p);return`<div style="display:flex;align-items:center;gap:7px;"><div class="ov-avatar" style="${avS(pi)}">${p.initials||p.name.slice(0,2)}</div><div style="font-size:13px;font-weight:500;">${p.name}</div></div>`;}).join('')}</div></div>`;
   return html;
 }
 
