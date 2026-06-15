@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Загрузка команды</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --bg:#f0ede8;--s1:#ffffff;--s2:#e8e4de;--s3:#dedad3;
+  --b1:rgba(0,0,0,.08);--b2:rgba(0,0,0,.14);
+  --t1:#1a1814;--t2:rgba(26,24,20,.52);--t3:rgba(26,24,20,.3);
+  --green:#16a34a;--green-bg:rgba(22,163,74,.09);--green-b:rgba(22,163,74,.22);
+  --amber:#d97706;--amber-bg:rgba(217,119,6,.09);--amber-b:rgba(217,119,6,.22);
+  --red:#dc2626;--red-bg:rgba(220,38,38,.09);--red-b:rgba(220,38,38,.22);
+  --blue:#4f46e5;--blue-bg:rgba(79,70,229,.09);--blue-b:rgba(79,70,229,.22);
+  --r:10px;
+}
+body{background:var(--bg);color:var(--t1);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;line-height:1.5;}
+button{font-family:inherit;cursor:pointer;}
+
+/* HEADER */
+.hdr{display:flex;align-items:center;gap:10px;padding:14px 28px;border-bottom:1px solid var(--b1);background:var(--s1);position:sticky;top:0;z-index:50;flex-wrap:wrap;}
+.hdr-logo{font-size:16px;font-weight:700;letter-spacing:-.03em;margin-right:4px;}
+.hdr-sub{font-size:11px;color:var(--t3);margin-right:auto;}
+.sync-wrap{display:flex;align-items:center;gap:5px;}
+.sync-dot{width:6px;height:6px;border-radius:50%;background:var(--green);}
+.sync-dot.err{background:var(--red);}
+.sync-txt{font-size:11px;color:var(--t2);}
+.week-nav{display:flex;align-items:center;background:var(--bg);border:1px solid var(--b2);border-radius:var(--r);overflow:hidden;}
+.week-nav button{background:none;border:none;color:var(--t2);padding:6px 13px;font-size:14px;}
+.week-nav button:hover{background:var(--s2);}
+.week-lbl{font-size:12px;padding:0 10px;white-space:nowrap;}
+.btn{border:none;border-radius:var(--r);padding:7px 15px;font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap;}
+.btn-primary{background:var(--blue);color:#fff;}
+.btn-ghost{background:var(--s2);border:1px solid var(--b2);color:var(--t2);}
+.btn-ghost:hover{color:var(--t1);}
+.btn-danger{background:var(--red-bg);border:1px solid var(--red-b);color:var(--red);}
+
+/* DEPT TABS */
+.dept-bar{display:flex;gap:0;padding:0 28px;border-bottom:1px solid var(--b1);background:var(--s1);position:sticky;top:53px;z-index:40;overflow-x:auto;}
+.dept-tab{background:none;border:none;border-bottom:2px solid transparent;color:var(--t2);padding:11px 18px;font-size:13px;font-weight:500;white-space:nowrap;cursor:pointer;transition:color .15s,border-color .15s;}
+.dept-tab:hover{color:var(--t1);}
+.dept-tab.active{color:var(--t1);border-bottom-color:var(--blue);}
+.dept-cnt{display:inline-block;background:var(--s2);color:var(--t2);border-radius:10px;font-size:10px;padding:1px 6px;margin-left:5px;}
+.dept-tab.active .dept-cnt{background:var(--blue-bg);color:var(--blue);}
+
+/* SUMMARY */
+.summary{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;padding:16px 28px;}
+.sum-card{background:var(--s1);border:1px solid var(--b1);border-radius:var(--r);padding:14px 16px;}
+.sum-lbl{font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:5px;}
+.sum-val{font-size:24px;font-weight:700;letter-spacing:-.03em;line-height:1.1;}
+.sum-sub{font-size:11px;color:var(--t2);margin-top:3px;}
+.load-scale{display:flex;align-items:center;gap:6px;margin-top:8px;}
+.scale-bar{flex:1;height:6px;background:var(--s2);border-radius:3px;overflow:hidden;position:relative;}
+.scale-norm{position:absolute;left:0;top:0;bottom:0;width:75%;background:var(--green-bg);border-right:2px solid var(--green);}
+.scale-fill{height:100%;border-radius:3px;transition:width .5s;}
+.scale-lbl{font-size:10px;color:var(--t2);}
+
+/* MAIN */
+.main{padding:16px 28px 60px;}
+.toolbar{display:flex;align-items:center;gap:8px;margin-bottom:14px;}
+.expand-btn{background:none;border:1px solid var(--b2);border-radius:var(--r);color:var(--t2);padding:5px 13px;font-size:12px;}
+.expand-btn:hover{color:var(--t1);}
+
+/* PERSON CARD */
+.pcard{background:var(--s1);border:1px solid var(--b1);border-radius:var(--r);margin-bottom:8px;overflow:hidden;}
+.pcard.overload{border-color:var(--red-b);}
+.pcard.warn{border-color:var(--amber-b);}
+
+/* Collapsed row */
+.pcollapsed{display:flex;align-items:center;gap:12px;padding:13px 20px;cursor:pointer;}
+.pcollapsed:hover{background:rgba(0,0,0,.02);}
+.pcollapsed-name{font-size:14px;font-weight:600;flex-shrink:0;}
+.pcollapsed-meta{font-size:12px;color:var(--t2);flex:1;}
+.pcollapsed-status{font-size:11px;font-weight:600;padding:3px 11px;border-radius:20px;}
+.pill-green{background:var(--green-bg);color:var(--green);border:1px solid var(--green-b);}
+.pill-amber{background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-b);}
+.pill-red{background:var(--red-bg);color:var(--red);border:1px solid var(--red-b);}
+.pill-gray{background:var(--s2);color:var(--t2);border:1px solid var(--b1);}
+.chevron{font-size:11px;color:var(--t3);transition:transform .2s;margin-left:2px;}
+
+/* Expanded body */
+.pbody{border-top:1px solid var(--b1);}
+
+/* Day columns grid */
+.day-grid{display:grid;grid-template-columns:repeat(5,1fr);border-bottom:1px solid var(--b1);}
+.day-col{border-left:1px solid var(--b1);padding:0;}
+.day-col:first-child{border-left:none;}
+
+/* Day header */
+.day-hdr{padding:10px 12px 8px;border-bottom:1px solid var(--b1);text-align:center;position:relative;}
+.day-hdr.today{background:rgba(79,70,229,.04);}
+.day-hdr.past{opacity:.45;}
+.day-name{font-size:10px;color:var(--t2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;}
+.day-hours{font-size:22px;font-weight:700;letter-spacing:-.03em;line-height:1;}
+.day-bar{height:4px;border-radius:2px;margin:6px 0 4px;overflow:hidden;background:var(--s2);}
+.day-bar-fill{height:100%;border-radius:2px;transition:width .4s;}
+.day-pct{font-size:10px;color:var(--t2);}
+.absent-btn{display:block;width:calc(100% - 16px);margin:6px 8px 4px;background:none;border:1px dashed var(--b2);border-radius:6px;color:var(--t3);font-size:10px;padding:3px 0;text-align:center;opacity:0;transition:opacity .15s;}
+.day-col:hover .absent-btn{opacity:1;}
+.absent-btn:hover{color:var(--red);border-color:var(--red-b);}
+.day-col.is-absent .absent-btn{opacity:1;color:var(--amber);border-color:var(--amber-b);}
+.day-col.is-absent .day-hdr{background:rgba(0,0,0,.02);}
+
+/* Task list per day */
+.day-tasks{padding:6px 8px 8px;display:flex;flex-direction:column;gap:3px;}
+.task-chip{border-radius:5px;padding:5px 8px;cursor:pointer;display:flex;align-items:center;gap:6px;transition:opacity .15s;}
+.task-chip:hover{opacity:.82;}
+.task-chip-name{font-size:11px;font-weight:600;color:rgba(0,0,0,.82);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.task-chip-h{font-size:10px;color:rgba(0,0,0,.5);flex-shrink:0;}
+.task-chip.is-fire{outline:1px solid var(--red);}
+.fire-icon{font-size:10px;flex-shrink:0;}
+.no-tasks{font-size:11px;color:var(--t3);padding:8px;text-align:center;}
+
+/* Info row */
+.info-row{display:flex;gap:6px;flex-wrap:wrap;padding:8px 16px 10px;border-top:1px solid var(--b1);}
+.info-chip{display:flex;align-items:center;gap:5px;padding:5px 11px;border-radius:6px;font-size:11px;}
+.chip-amber{background:var(--amber-bg);border:1px solid var(--amber-b);color:var(--amber);}
+.chip-gray{background:var(--s2);border:1px solid var(--b1);color:var(--t2);}
+
+/* Avatar */
+.avatar{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0;}
+
+/* OVERVIEW */
+.ov-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;padding:16px 0;}
+.ov-card{background:var(--s1);border:1px solid var(--b1);border-radius:var(--r);padding:16px;}
+.ov-dept{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--t2);margin-bottom:12px;}
+.ov-person{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--b1);cursor:pointer;}
+.ov-person:last-child{border-bottom:none;}
+.ov-name{font-size:12px;font-weight:500;flex:1;color:var(--t2);}
+.ov-bar{width:56px;height:4px;background:var(--s2);border-radius:2px;overflow:hidden;}
+.ov-bar-fill{height:100%;border-radius:2px;}
+.ov-pct{font-size:10px;min-width:28px;text-align:right;font-variant-numeric:tabular-nums;}
+.ov-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
+.ov-avatar{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;}
+
+/* MODALS */
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:100;align-items:center;justify-content:center;backdrop-filter:blur(3px);}
+.overlay.open{display:flex;}
+.modal{background:var(--s1);border:1px solid var(--b2);border-radius:14px;padding:24px;width:460px;max-width:95vw;max-height:90vh;overflow-y:auto;}
+.modal h3{font-size:16px;font-weight:700;margin-bottom:18px;}
+.fgroup{margin-bottom:12px;}
+.flbl{font-size:10px;color:var(--t2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;display:block;}
+.finput,.fsel{width:100%;background:var(--bg);border:1px solid var(--b2);border-radius:var(--r);color:var(--t1);font-family:inherit;font-size:13px;padding:9px 12px;outline:none;transition:border-color .15s;}
+.finput:focus,.fsel:focus{border-color:var(--blue);}
+.frow{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.mactions{display:flex;gap:8px;margin-top:18px;}
+.mcancel{flex:1;background:var(--s2);border:1px solid var(--b2);color:var(--t2);border-radius:var(--r);padding:10px;font-size:13px;}
+.msave{flex:2;background:var(--blue);border:none;color:#fff;border-radius:var(--r);padding:10px;font-size:13px;font-weight:500;}
+.msave:hover{opacity:.88;}
+
+/* task popup */
+.tp-week{background:var(--bg);border-radius:8px;padding:12px 14px;margin-bottom:12px;}
+.tp-day-row{display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12px;}
+.tp-day-bar{flex:1;height:4px;background:var(--s2);border-radius:2px;overflow:hidden;}
+.tp-day-fill{height:100%;border-radius:2px;}
+.tp-actions{display:flex;gap:7px;margin-top:14px;padding-top:14px;border-top:1px solid var(--b1);flex-wrap:wrap;}
+.tp-btn{background:var(--s2);border:1px solid var(--b2);color:var(--t2);border-radius:var(--r);padding:7px 13px;font-size:12px;}
+.tp-btn:hover{color:var(--t1);}
+.tp-btn.amber{background:var(--amber-bg);border-color:var(--amber-b);color:var(--amber);}
+.tp-btn.green{background:var(--green-bg);border-color:var(--green-b);color:var(--green);}
+.tp-btn.blue{background:var(--blue-bg);border-color:var(--blue-b);color:var(--blue);}
+
+/* bx */
+.bx-step{display:none;} .bx-step.active{display:block;}
+.bx-info{background:var(--blue-bg);border:1px solid var(--blue-b);border-radius:var(--r);padding:10px 13px;font-size:12px;color:var(--blue);line-height:1.6;margin-bottom:14px;}
+.ilist{max-height:260px;overflow-y:auto;}
+.irow{display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:1px solid var(--b1);font-size:12px;}
+.irow:last-child{border-bottom:none;}
+.irow input{accent-color:var(--blue);width:14px;height:14px;}
+.iname{color:var(--t1);} .imeta{font-size:10px;color:var(--t2);margin-top:1px;}
+.dg-row{display:grid;grid-template-columns:1fr 1fr;align-items:center;padding:7px 12px;border-bottom:1px solid var(--b1);}
+.dg-row:last-child{border-bottom:none;}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--b2);border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle;margin-right:6px;}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+/* team modal rows */
+.team-row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--b1);}
+.team-row:last-child{border-bottom:none;}
+
+/* toast */
+#toast{position:fixed;bottom:18px;right:18px;background:var(--t1);color:var(--s1);border-radius:var(--r);padding:9px 16px;font-size:12px;z-index:200;opacity:0;transition:opacity .3s;pointer-events:none;}
+#toast.show{opacity:1;}
+
+/* loader */
+#loader{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;z-index:999;}
+#loader .sp{width:24px;height:24px;border:2px solid var(--b2);border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite;}
+
+/* KANBAN */
+.view-toggle{display:flex;gap:2px;background:var(--s2);border:1px solid var(--b1);border-radius:6px;padding:2px;margin-left:auto;}
+.vt-btn{background:none;border:none;color:var(--t2);padding:4px 12px;font-size:11px;font-weight:500;border-radius:4px;cursor:pointer;transition:all .15s;}
+.vt-btn.active{background:var(--s1);color:var(--t1);box-shadow:0 1px 3px rgba(0,0,0,.08);}
+.kanban-wrap{display:flex;gap:8px;padding:12px 16px 16px;overflow-x:auto;}
+.kb-col{flex:0 0 200px;background:var(--bg);border-radius:8px;overflow:hidden;}
+.kb-col-hdr{padding:8px 12px;font-size:11px;font-weight:600;color:var(--t2);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--b1);}
+.kb-cards{padding:6px;display:flex;flex-direction:column;gap:4px;min-height:60px;}
+.kb-card{background:var(--s1);border:1px solid var(--b1);border-radius:6px;padding:9px 10px;cursor:pointer;transition:box-shadow .15s;}
+.kb-card:hover{box-shadow:0 2px 8px rgba(0,0,0,.08);}
+.kb-card-name{font-size:12px;font-weight:500;line-height:1.3;margin-bottom:5px;}
+.kb-card-meta{display:flex;align-items:center;gap:5px;flex-wrap:wrap;}
+.kb-chip{font-size:10px;padding:1px 6px;border-radius:10px;border:1px solid;}
+.kb-fire{font-size:10px;}
+.kb-empty{font-size:11px;color:var(--t3);padding:8px;text-align:center;}
+
+@media(max-width:700px){
+  .summary{grid-template-columns:1fr 1fr;}
+  .hdr,.main,.dept-bar{padding-left:16px;padding-right:16px;}
+  .day-grid{grid-template-columns:repeat(3,1fr);}
+}
+</style>
+</head>
+<body>
+
+<header class="hdr">
+  <span class="hdr-logo" id="hdr-title">Загрузка команды</span>
+  <span class="hdr-sub" id="hdr-sub">—</span>
+  <div class="sync-wrap"><div class="sync-dot" id="sync-dot"></div><span class="sync-txt" id="sync-txt">загрузка</span></div>
+  <div class="week-nav">
+    <button onclick="changeWeek(-1)">←</button>
+    <span class="week-lbl" id="week-lbl">—</span>
+    <button onclick="changeWeek(1)">→</button>
+  </div>
+  <button class="btn btn-primary" onclick="openBx()">⬇ Битрикс24</button>
+  <button class="btn btn-ghost" onclick="refreshData()">↻ Обновить</button>
+  <button class="btn btn-ghost" onclick="openTeam()">👥 Команда</button>
+  <button class="btn btn-danger" onclick="clearAll()">🗑</button>
+</header>
+
+<nav class="dept-bar" id="dept-bar"></nav>
+<div class="summary" id="summary"></div>
+
+<div class="main">
+  <div class="toolbar">
+    <button class="expand-btn" id="exp-btn" onclick="toggleAll()">Развернуть все</button>
+  </div>
+  <div id="main-content"></div>
+</div>
+
+<!-- BITRIX MODAL -->
+<div class="overlay" id="modal-bx" onclick="closeOut(event,'modal-bx')">
+  <div class="modal" style="width:500px">
+    <h3>Битрикс24</h3>
+    <div class="bx-step active" id="bx-s1">
+      <div class="bx-info">Загружает задачи для всех сотрудников из справочника по их ID в Битриксе.</div>
+      <div class="fgroup"><label class="flbl">URL вебхука</label><input class="finput" id="bx-url"></div>
+      <div class="fgroup"><label class="flbl">Период</label>
+        <select class="fsel" id="bx-days"><option value="14">14 дней</option><option value="30" selected>30 дней</option><option value="60">60 дней</option><option value="90">90 дней</option></select>
+      </div>
+      <div class="mactions"><button class="mcancel" onclick="closeModal('modal-bx')">Отмена</button><button class="msave" onclick="bxLoad()">Загрузить →</button></div>
+    </div>
+    <div class="bx-step" id="bx-s2"><div style="text-align:center;padding:28px 0;color:var(--t2);"><span class="spinner"></span>Загружаем...</div></div>
+    <div class="bx-step" id="bx-s3">
+      <div class="fgroup">
+        <label class="flbl">Привязка сотрудников Битрикс → дашборд</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr 120px 32px;gap:0;background:var(--bg);border:1px solid var(--b2);border-radius:var(--r);overflow:hidden;margin-bottom:4px;">
+          <div style="padding:6px 10px;font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--b1);">Имя в Битриксе</div>
+          <div style="padding:6px 10px;font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--b1);">Сотрудник в дашборде</div>
+          <div style="padding:6px 10px;font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--b1);">Отдел</div>
+          <div style="border-bottom:1px solid var(--b1);"></div>
+        </div>
+        <div id="bx-umap"></div>
+      </div>
+      <div style="border-top:1px solid var(--b1);margin:10px 0;"></div>
+      <label style="display:flex;align-items:center;gap:7px;font-size:11px;color:var(--t2);margin-bottom:7px;cursor:pointer;"><input type="checkbox" id="bx-all" onchange="bxSelAll(this)" style="accent-color:var(--blue);"> Выбрать все задачи</label>
+      <div class="ilist" id="bx-tlist"></div>
+      <div class="mactions"><button class="mcancel" onclick="bxStep(1)">← Назад</button><button class="msave" onclick="bxImport()">Импортировать</button></div>
+    </div>
+    <div class="bx-step" id="bx-s4">
+      <div style="text-align:center;padding:24px;color:var(--green);font-size:14px;" id="bx-done">✓ Готово!</div>
+      <div class="mactions"><button class="msave" onclick="closeModal('modal-bx')">Закрыть</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- TASK POPUP -->
+<div class="overlay" id="modal-task" onclick="closeOut(event,'modal-task')">
+  <div class="modal" style="width:480px"><div id="task-body"></div>
+    <div class="mactions"><button class="mcancel" onclick="closeModal('modal-task')">Закрыть</button></div>
+  </div>
+</div>
+
+<!-- TEAM MODAL -->
+<div class="overlay" id="modal-team" onclick="closeOut(event,'modal-team')">
+  <div class="modal">
+    <h3>Команда</h3>
+    <div class="fgroup"><label class="flbl">Отдел</label><select class="fsel" id="team-dept" onchange="renderTeamModal()"></select></div>
+    <div id="team-list"></div>
+    <div style="margin-top:14px;border-top:1px solid var(--b1);padding-top:14px;">
+      <div class="flbl" style="margin-bottom:8px;">Добавить</div>
+      <div class="frow" style="margin-bottom:8px;">
+        <input class="finput" id="new-name" placeholder="Имя Фамилия">
+        <input class="finput" id="new-init" placeholder="АБ" maxlength="2">
+      </div>
+      <div class="frow" style="margin-bottom:8px;">
+        <input class="finput" id="new-bxid" placeholder="ID в Битриксе (напр. 134)" type="number">
+        <div style="display:flex;align-items:center;font-size:11px;color:var(--t2);padding:0 4px;">Профиль → число в URL /user/<b>134</b>/</div>
+      </div>
+      <button class="btn btn-primary" style="width:100%" onclick="addMember()">+ Добавить</button>
+    </div>
+    <div class="mactions"><button class="msave" onclick="closeModal('modal-team')">Готово</button></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<div id="loader"><div class="sp"></div><div style="font-size:12px;color:var(--t2)">Загрузка...</div></div>
+
+<script>
+// ══════════════════════════
+// CONFIG
+// ══════════════════════════
+const SB_URL='https://esbihlmewoycupizxoor.supabase.co';
+const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVzYmlobG1ld295Y3VwaXp4b29yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkwNDQ2NzQsImV4cCI6MjA5NDYyMDY3NH0.JpqhpkHA77B8QcY3AWttWDy7PObniHdH9mjFOzAuUZE';
+const BX_WH='https://spectrum.bitrix24.ru/rest/158/gn998j287l5efo8s/';
+const DEF_GROUPS={design:'48',smm:'188',video:'80',merch:'74'};
+
+// Справочник сотрудников: bxId → {name, initials, dept}
+const BX_USERS={
+  '134': {name:'Михаил Кондрашенко', initials:'МК', dept:'design'},
+  '136': {name:'Дарья Котанова',     initials:'ДК', dept:'design'},
+  '138': {name:'Софья Белозор',      initials:'СБ', dept:'design'},
+  '266': {name:'Иван Коваль',        initials:'ИК', dept:'design'},
+  '174': {name:'Александра Инякина', initials:'АИ', dept:'video'},
+  '178': {name:'Влад Архипов',       initials:'ВА', dept:'video'},
+  '268': {name:'Владимир Качимов',   initials:'ВК', dept:'video'},
+  '188': {name:'Виктория Бухарова',  initials:'ВБ', dept:'smm'},
+  '176': {name:'Анастасия Михайловская', initials:'АМ', dept:'merch'},
+  '184': {name:'София Извекова',     initials:'СИ', dept:'merch'},
+  '16':  {name:'Сергей Бандуренко',  initials:'СБ', dept:'3d'},
+};
+
+const WORK_H=6, MAX_H=8, DEF_H=2;
+const APPROVAL_ST=['Согласование','Ждёт контроля'];
+const POSTPONED_ST=['Отложено','Отложена'];
+const DONE_ST=['Сдано и сдано','Завершена','Закрыта','Сдано'];
+const BX_ST={'1':'Новые','2':'Очередь в работу','3':'Создание','4':'Отложено','5':'Завершена','6':'Согласование','7':'Ждёт контроля'};
+
+const DEPTS=[
+  {id:'design',label:'Визуальный контент',icon:'🎨',color:'#16a34a'},
+  {id:'video', label:'Продакшн',          icon:'🎬',color:'#4f46e5'},
+  {id:'smm',   label:'SMM',               icon:'📱',color:'#db2777'},
+  {id:'merch', label:'Мерч',              icon:'🛍',color:'#d97706'},
+  {id:'3d',    label:'3D',                icon:'🧊',color:'#dc2626'},
+  {id:'manager',label:'Руководитель',     icon:'👑',color:'#7c3aed'},
+];
+const DM=Object.fromEntries(DEPTS.map(d=>[d.id,d]));
+
+const AV=[
+  {bg:'#dcfce7',fg:'#15803d'},{bg:'#ede9fe',fg:'#6d28d9'},{bg:'#fee2e2',fg:'#b91c1c'},
+  {bg:'#fef3c7',fg:'#b45309'},{bg:'#dbeafe',fg:'#1d4ed8'},{bg:'#fce7f3',fg:'#be185d'},
+  {bg:'#d1fae5',fg:'#065f46'},{bg:'#fef9c3',fg:'#a16207'},
+];
+const TC=['#4ade80','#818cf8','#f472b6','#fb923c','#60a5fa','#34d399','#fbbf24','#a78bfa','#f87171','#38bdf8','#86efac','#c4b5fd'];
+const DS=['Пн','Вт','Ср','Чт','Пт'];
+const MS=['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+
+// ══════════════════════════
+// STATE
+// ══════════════════════════
+let tasks=[],absences={};
+let persons=JSON.parse(localStorage.getItem('vc_p4')||'null')||[];
+let weekOff=0,curDept='overview';
+let expanded={};
+let bxRaw=[];
+let personView={}; // pi -> 'plan'|'kanban'
+let _sc=new Map();
+
+function savePers(){localStorage.setItem('vc_p4',JSON.stringify(persons));}
+const fmt=d=>d.toISOString().slice(0,10);
+const td0=()=>{const d=new Date();d.setHours(0,0,0,0);return d;};
+const tds=()=>fmt(td0());
+const fmtD=d=>d.getDate()+' '+MS[d.getMonth()];
+const mkI=n=>{const p=n.trim().split(' ');return(p.length>=2?(p[0][0]+p[1][0]):n.slice(0,2)).toUpperCase();};
+const avS=pi=>{const c=AV[pi%AV.length];return `background:${c.bg};color:${c.fg};`;};
+const isPast=ds=>ds<tds();
+const isToday=ds=>ds===tds();
+
+function fmt
